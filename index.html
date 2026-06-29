@@ -2,34 +2,92 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Project Orange</title>
   <link rel="stylesheet" href="app.css" />
 </head>
 <body>
-  <aside class="sidebar">
-    <div class="brand"><div class="logo">🍊</div><div><h1>Project Orange</h1><p>Syracuse OBX Value Index</p></div></div>
-    <button class="nav active" data-view="dashboard">Today's Decision</button>
-    <button class="nav" data-view="houses">Houses</button>
-    <button class="nav" data-view="votes">Group Picks</button>
-    <button class="nav" data-view="market">Market</button>
-    <button class="nav" data-view="history">History</button>
-    <div class="sidebar-note"><b>Data:</b><br><span id="dataStatus">Loading…</span></div>
-  </aside>
-  <main>
-    <header class="topbar">
-      <div><h2 id="pageTitle">Today's Decision</h2><p id="pageSubtitle">Live ranking, votes, prices, and market notes.</p></div>
-      <div class="actions"><button id="refreshBtn">Refresh</button><button id="addHouseBtn" class="primary">+ Add House</button></div>
-    </header>
-    <section id="dashboard" class="view active"></section>
-    <section id="houses" class="view"></section>
-    <section id="votes" class="view"></section>
-    <section id="market" class="view"></section>
-    <section id="history" class="view"></section>
+  <header class="topbar">
+    <div>
+      <div class="eyebrow">Syracuse OBX House Search</div>
+      <h1>Project Orange</h1>
+    </div>
+    <div class="top-actions">
+      <button id="refreshBtn" class="btn">Refresh</button>
+      <button id="showAddBtn" class="btn primary">Add House</button>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section id="connectionBanner" class="banner hidden"></section>
+
+    <section class="kpi-grid">
+      <div class="kpi"><span id="kpiActive">--</span><label>Active</label></div>
+      <div class="kpi"><span id="kpiTop">--</span><label>Top Tier</label></div>
+      <div class="kpi"><span id="kpiNew">--</span><label>New</label></div>
+      <div class="kpi"><span id="kpiLost">--</span><label>Lost/Booked</label></div>
+    </section>
+
+    <section class="panel today">
+      <div>
+        <h2>Today's Decision</h2>
+        <p id="todayText">Loading Project Orange data...</p>
+      </div>
+      <div class="legend">
+        <span><i class="dot green"></i>Top 3</span>
+        <span><i class="dot yellow"></i>Next 3</span>
+        <span><i class="dot orange"></i>Backup</span>
+        <span><i class="dot blue"></i>New</span>
+        <span><i class="dot gray"></i>Lost</span>
+      </div>
+    </section>
+
+    <section id="addPanel" class="panel hidden">
+      <div class="panel-head">
+        <h2>Add a House</h2>
+        <button id="hideAddBtn" class="linkbtn">Close</button>
+      </div>
+      <form id="addHouseForm" class="form-grid">
+        <label>House Name<input name="HouseName" required /></label>
+        <label>Listing URL<input name="ListingURL" type="url" /></label>
+        <label>Agency<input name="Agency" /></label>
+        <label>Neighborhood<input name="Neighborhood" /></label>
+        <label>Bedrooms<input name="Bedrooms" type="number" min="0" /></label>
+        <label>Current Total<input name="CurrentTotal" type="number" min="0" step="0.01" /></label>
+        <label>Target Price<input name="TargetPrice" type="number" min="0" step="0.01" /></label>
+        <label>Oceanfront
+          <select name="Oceanfront"><option></option><option>Yes</option><option>No</option><option>Near</option></select>
+        </label>
+        <label>Pool
+          <select name="Pool"><option></option><option>Yes</option><option>No</option></select>
+        </label>
+        <label>Elevator
+          <select name="Elevator"><option></option><option>Yes</option><option>No</option><option>Partial</option></select>
+        </label>
+        <label class="wide">Notes<textarea name="Notes"></textarea></label>
+        <div class="wide"><button class="btn primary" type="submit">Save House</button></div>
+      </form>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>House Board</h2>
+        <div class="filters">
+          <button class="filter active" data-filter="all">All</button>
+          <button class="filter" data-filter="active">Active</button>
+          <button class="filter" data-filter="new">New</button>
+          <button class="filter" data-filter="lost">Lost</button>
+        </div>
+      </div>
+      <div id="cards" class="cards"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Activity</h2>
+      <div id="activity" class="activity"></div>
+    </section>
   </main>
 
-  <div id="modal" class="modal hidden"><div class="modal-card"><button class="close" id="closeModal">×</button><div id="modalContent"></div></div></div>
-  <div id="toast" class="toast hidden"></div>
   <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
