@@ -110,6 +110,7 @@ function normalizeResult(result){
   };
 }
 
+
 function buildCards(data){
   const housesById = Object.fromEntries(
     (data.Houses || []).map(h => [String(h.HouseID), h])
