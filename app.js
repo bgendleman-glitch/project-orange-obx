@@ -98,28 +98,48 @@ async function loadData(){
 }
 
 function normalizeResult(result){
-  const tables = result.tables || result;
+  const tables = result.data || result.tables || result;
+
   return {
-    Houses: tables.Houses || result.Houses || [],
-    HouseSeasons: tables.HouseSeasons || result.HouseSeasons || [],
-    Votes: tables.Votes || result.Votes || [],
-    PriceObservations: tables.PriceObservations || result.PriceObservations || [],
-    People: tables.People || result.People || [],
-    Seasons: tables.Seasons || result.Seasons || []
+    Houses: tables.Houses || [],
+    HouseSeasons: tables.HouseSeasons || [],
+    Votes: tables.Votes || [],
+    PriceObservations: tables.PriceObservations || [],
+    People: tables.People || [],
+    Seasons: tables.Seasons || []
   };
 }
 
 function buildCards(data){
-  const housesById = Object.fromEntries(data.Houses.map(h => [String(h.HouseID), h]));
-  const current = data.HouseSeasons.filter(hs => !state.activeSeason || !hs.SeasonID || hs.SeasonID === state.activeSeason);
+  const housesById = Object.fromEntries(
+    (data.Houses || []).map(h => [String(h.HouseID), h])
+  );
+
+  const allHouseSeasons = data.HouseSeasons || [];
+
+  let current = allHouseSeasons.filter(hs =>
+    String(hs.SeasonID || '').trim() === 'S_2026'
+  );
+
+  if (!current.length) {
+    current = allHouseSeasons.filter(hs =>
+      String(hs.CandidateType || '').toLowerCase().includes('active') ||
+      String(hs.Status || '').toLowerCase().includes('watch') ||
+      String(hs.Status || '').toLowerCase().includes('buy') ||
+      String(hs.Status || '').toLowerCase().includes('candidate')
+    );
+  }
+
   return current.map((hs, idx)=>{
     const h = housesById[String(hs.HouseID)] || {};
-    const votes = data.Votes.filter(v => 
-      (hs.HouseSeasonID && String(v.HouseSeasonID) === String(hs.HouseSeasonID)) ||
-      (h.HouseID && String(v.HouseID) === String(h.HouseID))
+    const votes = (data.Votes || []).filter(v =>
+      String(v.HouseSeasonID || '') === String(hs.HouseSeasonID || '') ||
+      String(v.HouseID || '') === String(hs.HouseID || '')
     );
+
     const score = voteScore(votes);
     const manualRank = toNumber(hs.ManualRank || hs.FinalRank);
+
     return {
       ...h,
       ...hs,
@@ -135,7 +155,6 @@ function buildCards(data){
     return String(a.HouseName||'').localeCompare(String(b.HouseName||''));
   });
 }
-
 function voteScore(votes){
   if(!votes.length) return 0;
   const vals = votes.map(v => {
