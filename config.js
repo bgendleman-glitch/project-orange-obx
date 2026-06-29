@@ -1,7 +1,7 @@
-// Project Orange configuration.
-// After deploying Google Apps Script, paste the Web App URL here.
+// Project Orange configuration
+// Paste your deployed Google Apps Script Web App URL here after deploying Code.gs.
 window.PROJECT_ORANGE_CONFIG = {
-  API_URL: 'https://script.google.com/macros/s/AKfycbwBPorvrl8UtOHiuUUkFqRacVJ5uG9lTIhcv4Ccg8s0rCVsI4jSIpPQpuRWDIau0IA/exec',
-  CURRENT_SEASON_ID: 'S_2026',
-  PIN_REQUIRED: false
+  API_URL: "PASTE_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE",
+  ACTIVE_SEASON_ID: "S_2026",
+  ADMIN_PIN: "orange"
 };

@@ -1,175 +1,179 @@
-const CFG = window.PROJECT_ORANGE_CONFIG || {API_URL:'', CURRENT_SEASON_ID:'S_2026'};
-const VOTERS = ['Caitlin','Sarah','Claudine','Jenn','Brent'];
-let db = {}; let online = false;
+const CONFIG = window.PROJECT_ORANGE_CONFIG || {};
+const API_URL = CONFIG.API_URL || '';
+const ACTIVE_SEASON_ID = CONFIG.ACTIVE_SEASON_ID || 'S_2026';
+let state = { houses: [], houseSeasons: [], votes: [], prices: [], people: [], seasons: [], neighborhoods: [], agencies: [], historical: [], lessons: [] };
+const voteScores = { LOVE: 4, LIKE: 3, MAYBE: 2, PASS: 0 };
+const statusLabels = { BUY:'BUY', WATCH:'WATCH', NEGOTIATE:'NEGOTIATE', SHORTLIST:'SHORTLIST', ACTIVE:'ACTIVE', NEW:'NEW', BOOKED:'BOOKED', ELIMINATED:'ELIMINATED', PASS:'PASS', LOST:'LOST' };
+const lostStatuses = new Set(['BOOKED','ELIMINATED','PASS','LOST']);
 
-const $ = sel => document.querySelector(sel);
-const $$ = sel => Array.from(document.querySelectorAll(sel));
-const money = n => (n === '' || n == null || Number(n) === 0) ? '—' : new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(n));
-const num = n => Number(String(n ?? '').replace(/[$,]/g,'')) || 0;
-const norm = s => String(s || '').trim().replace(/\s+/g,' ');
-const LOST = ['BOOKED','ELIMINATED','PASS'];
+function qs(s){ return document.querySelector(s); }
+function qsa(s){ return [...document.querySelectorAll(s)]; }
+function money(n){ const x = Number(String(n||'').replace(/[^0-9.-]/g,'')); return x ? x.toLocaleString('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}) : 'TBD'; }
+function clean(v){ return (v ?? '').toString().trim(); }
+function getId(row, keys){ for(const k of keys){ if(row[k]) return row[k]; } return ''; }
+function normalizeRows(rows){ return (rows||[]).map(r=>{ const out={}; Object.keys(r||{}).forEach(k=>out[clean(k)] = r[k]); return out; }); }
 
-function canonicalNeighborhood(n){
-  n = norm(n); const key = n.toLowerCase().replace(/[^a-z0-9]/g,'');
-  const map = {pineisand:'Pine Island', pineisland:'Pine Island', palmersisland:'Palmer Island', palmerisland:'Palmer Island', whalehead:'Whalehead', oceanhill:'Ocean Hill', oceansands:'Ocean Sands', oceansandsb:'Ocean Sands B', buckisland:'Buck Island', corollalight:'Corolla Light', corolla:'Corolla', duck:'Duck', southnagshead:'South Nags Head', nagshead:'Nags Head', killdevilhills:'Kill Devil Hills', kdh:'Kill Devil Hills', fourseasons:'Four Seasons', southernshores:'Southern Shores', salvo:'Salvo', hatteras:'Hatteras'};
-  if(!n || ['people','comments','no','yes','nan','none'].includes(key)) return '';
-  return map[key] || titleCase(n);
-}
-function canonicalAgency(n){
-  n = norm(n); const key = n.toLowerCase().replace(/[^a-z0-9]/g,'');
-  const map = {twiddy:'Twiddy', twiddyfriday:'Twiddy', brindley:'Brindley', brindleybeach:'Brindley', carolinades:'Carolina Designs', carolinadesign:'Carolina Designs', carolinadesigns:'Carolina Designs', carolinadesisn:'Carolina Designs', beachrealty:'Beach Realty', kees:'KEES', villagerealty:'Village Realty', vrbo:'VRBO', airbnb:'Airbnb', corollaclassic:'Corolla Classic', joelamb:'Joe Lamb', joelambjr:'Joe Lamb', outerbanksblue:'Outer Banks Blue', resortrealty:'Resort Realty', sunrealty:'Sun Realty'};
-  if(!n || ['comments','people','no','yes','nan','none'].includes(key)) return '';
-  return map[key] || titleCase(n);
-}
-async function init(){ bindNav(); bindForms(); await loadData(); renderAll(); }
-async function loadData(){
-  try{
-    if(CFG.API_URL){
-      const res = await fetch(CFG.API_URL + '?action=getData&cache=' + Date.now());
-      const json = await res.json();
-      if(json.ok){ db = normalizeData(json.data); online = true; return; }
-    }
-  }catch(e){ console.warn('Apps Script not available; loading local sample data.', e); }
-  const local = await fetch('data/sample-data.json').then(r=>r.json());
-  db = normalizeData(local.data); online = false;
-}
-function bindNav(){
-  $$('.nav').forEach(btn=>btn.addEventListener('click',()=>{
-    $$('.nav').forEach(b=>b.classList.remove('active')); btn.classList.add('active');
-    const v = btn.dataset.view; $$('.view').forEach(x=>x.classList.add('hidden')); $('#view-'+v).classList.remove('hidden');
-    $('#title').textContent = ({war:"Today's Decision",houses:'House Database',prices:'Price History',votes:'Group Picks',intel:'Intelligence'})[v];
-  }));
-  $('#refreshBtn').onclick = async()=>{ await loadData(); renderAll(); };
-  $('#addHouseBtn').onclick = ()=>$('#houseDialog').showModal();
-  $('#search').oninput = renderWar; $('#statusFilter').onchange = renderWar;
-}
-function bindForms(){
-  $('#voteForm').onsubmit = async e => { e.preventDefault(); const p = formObj(e.target); const house = houseById(p.HouseID); p.HouseName = houseName(house) || ''; p.SeasonID = CFG.CURRENT_SEASON_ID; p.VoteType = 'Current'; await post('addVote', p); await loadData(); renderAll(); e.target.reset(); };
-  $('#priceForm').onsubmit = async e => { e.preventDefault(); const p = formObj(e.target); const house = houseById(p.HouseID); p.HouseName = houseName(house) || ''; p.SeasonID = CFG.CURRENT_SEASON_ID; await post('addPrice', p); await loadData(); renderAll(); e.target.reset(); };
-  $('#houseForm').onsubmit = async e => { e.preventDefault(); const p = formObj(e.target); p.SeasonID = CFG.CURRENT_SEASON_ID; await post('addHouse', p); $('#houseDialog').close(); await loadData(); renderAll(); e.target.reset(); };
-}
-function formObj(form){ return Object.fromEntries(new FormData(form).entries()); }
-async function post(action, payload){
-  if(!CFG.API_URL){ alert('No Apps Script API_URL configured yet. Paste it into config.js.'); return {ok:false}; }
-  const body = {action, payload}; if(CFG.PIN_REQUIRED) body.pin = prompt('Project Orange PIN');
-  const res = await fetch(CFG.API_URL, {method:'POST', body:JSON.stringify(body)}); const json = await res.json();
-  if(!json.ok) alert('Save failed: ' + json.error); return json;
-}
-
-function normalizeData(data){
-  data = data || {};
-  const houses = (data.Houses || []).map(h=>{ const clean = cleanHouseName(h.HouseName || '', h.ListingURL || h.HouseLink || ''); return {...h, DisplayName: clean, Neighborhood: canonicalNeighborhood(h.Neighborhood), Agency: canonicalAgency(h.Agency)}; });
-  data.Houses = dedupeRows(houses, h => String(h.HouseID || houseName(h)).toLowerCase(), mergeHouseRows);
-  data.Neighborhoods = buildNeighborhoods(data); data.Agencies = buildAgencies(data); return data;
-}
-function dedupeRows(rows, keyFn, mergeFn){ const m = new Map(); (rows||[]).forEach(r=>{ const k = keyFn(r); if(!k) return; m.set(k, m.has(k) ? mergeFn(m.get(k), r) : {...r}); }); return [...m.values()]; }
-function mergeHouseRows(a,b){ const out = {...a}; Object.keys(b||{}).forEach(k=>{ if((out[k] == null || out[k] === '') && b[k] != null && b[k] !== '') out[k] = b[k]; }); out.DisplayName = cleanHouseName(out.DisplayName || out.HouseName, out.ListingURL || out.HouseLink || b.ListingURL || b.HouseLink || ''); out.Neighborhood = canonicalNeighborhood(out.Neighborhood || b.Neighborhood); out.Agency = canonicalAgency(out.Agency || b.Agency); return out; }
-function buildNeighborhoods(data){
-  const base = (data.Neighborhoods||[]).map(n=>({...n, NeighborhoodName: canonicalNeighborhood(n.NeighborhoodName || n.Neighborhood)})).filter(n=>n.NeighborhoodName);
-  const fromHouses = (data.Houses||[]).map(h=>({NeighborhoodName: canonicalNeighborhood(h.Neighborhood), Notes:''})).filter(n=>n.NeighborhoodName);
-  const by = new Map(); [...base, ...fromHouses].forEach(r=>{ const k=r.NeighborhoodName; const ex=by.get(k)||{NeighborhoodID:'N_'+k.toLowerCase().replace(/[^a-z0-9]/g,''),NeighborhoodName:k,BeachPrivacyScore:'',GroceryConvenienceScore:'',Notes:''}; by.set(k,{...ex,BeachPrivacyScore:ex.BeachPrivacyScore||r.BeachPrivacyScore||'',GroceryConvenienceScore:ex.GroceryConvenienceScore||r.GroceryConvenienceScore||'',Notes:[ex.Notes,r.Notes].filter(Boolean).join(' | ').split(' | ').filter((v,i,a)=>a.indexOf(v)===i).join(' | ')}); });
-  return [...by.values()].sort((a,b)=>a.NeighborhoodName.localeCompare(b.NeighborhoodName));
-}
-function buildAgencies(data){
-  const base = (data.Agencies||[]).map(a=>({...a, AgencyName: canonicalAgency(a.AgencyName || a.Agency)})).filter(a=>a.AgencyName);
-  const fromHouses = (data.Houses||[]).map(h=>({AgencyName: canonicalAgency(h.Agency), Notes:''})).filter(a=>a.AgencyName);
-  const by = new Map(); [...base, ...fromHouses].forEach(r=>{ const k=r.AgencyName; const ex=by.get(k)||{AgencyID:'A_'+k.toLowerCase().replace(/[^a-z0-9]/g,''),AgencyName:k,TypicalDiscount:'TBD from observed data',Notes:''}; by.set(k,{...ex,TypicalDiscount:ex.TypicalDiscount||r.TypicalDiscount||'TBD from observed data',Notes:[ex.Notes,r.Notes].filter(Boolean).join(' | ').split(' | ').filter((v,i,a)=>a.indexOf(v)===i).join(' | ')}); });
-  return [...by.values()].sort((a,b)=>a.AgencyName.localeCompare(b.AgencyName));
-}
-function isDirtyHouseName(name){ const n = String(name || ''); return !n.trim() || n.length > 75 || /[?#=]/.test(n) || /(checkin|checkout|previous page|federated|source impression|rcav|chkin|chkout|search mode)/i.test(n); }
-function cleanHouseName(name, url){
-  const n = String(name || '').trim(); if(n && !isDirtyHouseName(n)) return n; const u=String(url||'');
-  try{ const parsed=new URL(u); const host=parsed.hostname.toLowerCase(); const parts=parsed.pathname.split('/').filter(Boolean).map(x=>decodeURIComponent(x)); if(host.includes('airbnb')){const id=parts[1]||parts[0]||''; return id?`Airbnb Listing ${id}`:'Airbnb Listing';} if(host.includes('vrbo')){const id=parts[0]||''; return id?`VRBO Listing ${id}`:'VRBO Listing';} if(host.includes('surforsound')){const id=parts.at(-1)||''; return id?`Surf or Sound Listing ${id}`:'Surf or Sound Listing';} let slug=parts.at(-1)||parts.at(-2)||''; slug=slug.replace(/\.html?$/i,'').replace(/^[a-z]{0,4}\d+[a-z]?[-_]?/i,'').replace(/[-_]+/g,' ').replace(/\s+/g,' ').trim(); if(slug) return titleCase(slug);}catch(e){}
-  return n ? n.slice(0,70) : 'Unnamed Historical Listing';
-}
-function titleCase(s){ return String(s||'').toLowerCase().replace(/\b\w/g, c=>c.toUpperCase()); }
-function houseName(h){ return h?.DisplayName || h?.HouseName || ''; }
-function houseById(id){ return (db.Houses||[]).find(h=>String(h.HouseID)===String(id)); }
-function currentSeasonRows(){ return (db.HouseSeasons||[]).filter(r=>String(r.SeasonID)===String(CFG.CURRENT_SEASON_ID)); }
-function currentVotes(){ return (db.Votes||[]).filter(v=>String(v.SeasonID)===String(CFG.CURRENT_SEASON_ID)); }
-function votePoints(v){ const s=String(v??'').toLowerCase(); if(s==='love'||s==='3')return 3; if(s==='like'||s==='2')return 2; if(s==='maybe'||s==='1'||s==='0')return 0; if(s==='pass'||s==='-3')return -3; return num(v); }
-function voteLabel(v){ const s=String(v??'').toLowerCase(); if(s==='love'||s==='3')return '❤️'; if(s==='like'||s==='2')return '👍'; if(s==='maybe'||s==='1'||s==='0')return '🤔'; if(s==='pass'||s==='-3')return '👎'; return v||''; }
-function latestVoteObj(hid, person){ const rows=currentVotes().filter(v=>String(v.HouseID)===String(hid)&&String(v.Person)===person); return rows.length ? rows[rows.length-1] : null; }
-function latestVote(hid, person){ const v=latestVoteObj(hid,person); return v ? voteLabel(v.Vote) : ''; }
-function avgVote(houseId){ const latest = VOTERS.map(p=>latestVoteObj(houseId,p)).filter(Boolean); if(!latest.length) return 0; return latest.reduce((a,r)=>a+votePoints(r.Vote),0)/latest.length; }
-function finalScore(row){ return Math.round(num(row.OverallScore) + avgVote(row.HouseID)*4 + (num(row.BuyScore)-70)*0.12); }
-function linkedHouse(name, url){ return url ? `<a href="${escapeAttr(url)}" target="_blank" rel="noopener">${escapeHtml(name)}</a>` : escapeHtml(name); }
-function statusClass(s){ s=String(s||'').toLowerCase(); if(s.includes('buy'))return 'buy'; if(s.includes('short'))return 'shortlist'; if(s.includes('book')||s.includes('elimin')||s.includes('pass'))return 'pass'; if(s.includes('negotiate'))return 'negotiate'; return 'watch'; }
-function isLost(row){ return LOST.includes(String(row.Status||'').toUpperCase()); }
-function effectiveRank(row){ return num(row.ManualRank || row.FinalRank); }
-function rowsRanked(){
-  return currentSeasonRows().map(r=>({...r, house:houseById(r.HouseID), score:finalScore(r)})).sort((a,b)=>{
-    const al=isLost(a), bl=isLost(b); if(al!==bl) return al?1:-1;
-    const ar=effectiveRank(a), br=effectiveRank(b); if(ar && br && ar!==br) return ar-br; if(ar && !br) return -1; if(!ar && br) return 1;
-    return b.score-a.score;
+function api(action, payload={}){
+  if(!API_URL || API_URL.includes('PASTE_')) return Promise.reject(new Error('Missing API_URL in config.js'));
+  return new Promise((resolve,reject)=>{
+    const cb = 'po_cb_' + Math.random().toString(36).slice(2);
+    const script = document.createElement('script');
+    const url = new URL(API_URL);
+    url.searchParams.set('action', action);
+    url.searchParams.set('callback', cb);
+    url.searchParams.set('payload', JSON.stringify(payload));
+    window[cb] = (res)=>{ cleanup(); res && res.ok ? resolve(res.data) : reject(new Error((res&&res.error)||'API error')); };
+    function cleanup(){ delete window[cb]; script.remove(); }
+    script.onerror = ()=>{ cleanup(); reject(new Error('Could not reach Google Apps Script API. Check deployment permissions.')); };
+    script.src = url.toString();
+    document.body.appendChild(script);
   });
 }
 
-function renderAll(){ renderKpis(); renderActivity(); renderWar(); renderTables(); renderForms(); renderIntel(); }
-function renderKpis(){
-  const rows=rowsRanked(); const active=rows.filter(r=>!isLost(r)); const ocean=active.filter(r=>String(r.house?.Oceanfront||'').toLowerCase().startsWith('yes')).length; const buys=active.filter(r=>String(r.Status||'').toUpperCase().includes('BUY')).length; const avgDisc=active.length?Math.round(active.reduce((a,r)=>a+num(r.DiscountPct),0)/active.length):0; const valueLeader=[...active].sort((a,b)=>num(b.ValueScore)-num(a.ValueScore))[0]; const bestOverall=active[0]; const lost=rows.length-active.length;
-  const kpis=[['Active Houses',active.length,online?'Live from Google Sheets':'Sample/offline data'],['Oceanfront',ocean,'active season'],['Buy Today',buys,'status = BUY'],['Avg Discount',avgDisc+'%','observed/entered'],['Value Leader',houseName(valueLeader?.house)||valueLeader?.HouseName||'—',money(valueLeader?.CurrentTotal)],['Lost/Booked',lost,'kept for history']];
-  $('#kpis').innerHTML=kpis.map(k=>`<div class="kpi"><label>${k[0]}</label><b>${k[1]}</b><p>${k[2]}</p></div>`).join('');
-}
-function renderActivity(){
-  const rows=rowsRanked(); const lost=rows.filter(isLost).slice(0,3); const recentVotes=(currentVotes()||[]).slice(-4).reverse(); const recentPrices=(db.PriceObservations||[]).slice(-3).reverse();
-  const items=[]; lost.forEach(r=>items.push(`❌ <b>${escapeHtml(houseName(r.house)||r.HouseName)}</b> marked ${escapeHtml(r.Status||'lost')}.`)); recentPrices.forEach(p=>items.push(`💰 <b>${escapeHtml(p.HouseName||'House')}</b> price check: ${money(p.TotalAmount||p.RentAmount)}.`)); recentVotes.forEach(v=>items.push(`${voteLabel(v.Vote)} <b>${escapeHtml(v.Person||'Someone')}</b> voted on <b>${escapeHtml(v.HouseName||'a house')}</b>.`));
-  $('#activity').innerHTML = `<div class="panel activity-panel"><h3>What changed?</h3>${items.length?`<ul>${items.slice(0,6).map(i=>`<li>${i}</li>`).join('')}</ul>`:'<p class="muted">No recent activity yet.</p>'}</div>`;
-}
-
-function isNewHouse(row, index){
-  const status = String(row.Status || '').toUpperCase();
-  const candidate = String(row.CandidateType || '').toLowerCase();
-  const h = row.house || {};
-  const added = row.CreatedAt || row.AddedDate || h.CreatedAt || h.AddedDate || '';
-  if (status === 'NEW' || candidate.includes('new')) return true;
-  if (added) {
-    const d = new Date(added);
-    if (!isNaN(d)) return (Date.now() - d.getTime()) <= 7*24*60*60*1000;
+async function loadData(){
+  try{
+    setStatus('Loading live Google Sheet data…');
+    const data = await api('getData', { seasonId: ACTIVE_SEASON_ID });
+    state = normalizeData(data);
+    setStatus('Live Google Sheet data');
+    render();
+  } catch(err){
+    console.error(err);
+    setStatus('Error: ' + err.message);
+    toast(err.message);
+    try{ await loadFallback(); }catch(e){}
   }
-  return false;
 }
-function tierMeta(row, index){
-  if(isLost(row)) return {cls:'tier-lost',label:'Lost',emoji:'⚫'};
-  if(isNewHouse(row,index)) return {cls:'tier-new',label:'New',emoji:'🔵'};
-  if(index < 3) return {cls:'tier-top',label:'Top 3',emoji:'🟢'};
-  if(index < 6) return {cls:'tier-watch',label:'Next 3',emoji:'🟡'};
-  return {cls:'tier-backup',label:'Backup',emoji:'🟠'};
+async function loadFallback(){
+  const res = await fetch('data/sample-data.json');
+  if(res.ok){ state = normalizeData(await res.json()); setStatus('Sample data fallback'); render(); }
 }
-function medalRank(index){ return index===0?'🥇':index===1?'🥈':index===2?'🥉':'#'+(index+1); }
+function normalizeData(data){
+  return {
+    houses: normalizeRows(data.houses || data.Houses),
+    houseSeasons: normalizeRows(data.houseSeasons || data.HouseSeasons),
+    votes: normalizeRows(data.votes || data.Votes),
+    prices: normalizeRows(data.prices || data.PriceObservations),
+    people: normalizeRows(data.people || data.People),
+    seasons: normalizeRows(data.seasons || data.Seasons),
+    neighborhoods: normalizeRows(data.neighborhoods || data.Neighborhoods),
+    agencies: normalizeRows(data.agencies || data.Agencies),
+    historical: normalizeRows(data.historical || data.HistoricalEvaluations),
+    lessons: normalizeRows(data.lessons || data.Lessons)
+  };
+}
+function setStatus(s){ const el=qs('#dataStatus'); if(el) el.textContent=s; }
+function toast(msg){ const t=qs('#toast'); t.textContent=msg; t.classList.remove('hidden'); setTimeout(()=>t.classList.add('hidden'),3500); }
 
-function renderWar(){
-  const q=($('#search')?.value||'').toLowerCase(); const status=$('#statusFilter')?.value||''; let rows=rowsRanked(); if(status) rows=rows.filter(r=>String(r.Status||'').toUpperCase()===status); if(q) rows=rows.filter(r=>JSON.stringify(r).toLowerCase().includes(q)||JSON.stringify(r.house||{}).toLowerCase().includes(q));
-  $('#cards').innerHTML=rows.map((r,i)=>{ const h=r.house||{}; const url=h.ListingURL||h.HouseLink||''; const gap=num(r.CurrentTotal)-num(r.TargetPrice); const lost=isLost(r); const votes=VOTERS.map(p=>latestVote(r.HouseID,p)).filter(Boolean).join(' '); const tier=tierMeta(r,i);
-    return `<article class="card decision-card ${tier.cls} ${lost?'lost-card':''}"><div class="tier-pill">${tier.emoji} ${tier.label}</div><div class="rank">${medalRank(i)}</div><h4>${linkedHouse(houseName(h)||r.HouseName,url)}</h4><div class="chips"><span class="chip ${statusClass(r.Status)}">${escapeHtml(r.Status||'WATCH')}</span><span class="chip">${escapeHtml(h.Neighborhood||'')}</span><span class="chip">${escapeHtml(h.Agency||'')}</span><span class="chip">${escapeHtml(h.Bedrooms||'')} BR</span><span class="chip">OF: ${escapeHtml(h.Oceanfront||'—')}</span></div><div class="metrics"><div class="metric"><span>Decision</span><b>${r.score}</b><div class="scorebar"><i style="width:${Math.min(100,r.score)}%"></i></div></div><div class="metric"><span>Current</span><b>${money(r.CurrentTotal)}</b></div><div class="metric"><span>Target Gap</span><b>${gap?money(gap):'—'}</b></div><div class="metric"><span>Value</span><b>${num(r.ValueScore)}</b></div><div class="metric"><span>Group</span><b>${votes || '—'}</b></div><div class="metric"><span>Manual</span><b>${effectiveRank(r)||'—'}</b></div></div><p class="note">${escapeHtml(r.AnalystNotes||h.Notes||'')}</p><div class="card-actions"><button onclick="moveHouse('${escapeAttr(r.HouseSeasonID)}',-1)">↑ Move Up</button><button onclick="moveHouse('${escapeAttr(r.HouseSeasonID)}',1)">↓ Move Down</button><button onclick="quickStatus('${escapeAttr(r.HouseSeasonID)}','SHORTLIST')">⭐ Shortlist</button><button onclick="quickStatus('${escapeAttr(r.HouseSeasonID)}','BOOKED')">Mark Booked</button><button onclick="quickStatus('${escapeAttr(r.HouseSeasonID)}','ELIMINATED')">Eliminate</button></div></article>`;
-  }).join('') || '<p class="muted">No houses match.</p>';
+function activeRecords(){
+  const housesById = new Map(state.houses.map(h=>[getId(h,['HouseID','HouseId','ID']), h]));
+  const votesByHs = groupBy(state.votes, v=>getId(v,['HouseSeasonID','HouseSeasonId']));
+  const pricesByHs = groupBy(state.prices, p=>getId(p,['HouseSeasonID','HouseSeasonId']));
+  return state.houseSeasons
+    .filter(hs => !ACTIVE_SEASON_ID || clean(hs.SeasonID || hs.SeasonId) === ACTIVE_SEASON_ID || !hs.SeasonID)
+    .map(hs=>{
+      const house = housesById.get(clean(hs.HouseID || hs.HouseId)) || {};
+      const id = getId(hs,['HouseSeasonID','HouseSeasonId','ID']) || `${house.HouseID||house.HouseId}_${hs.SeasonID||ACTIVE_SEASON_ID}`;
+      const vv = votesByHs.get(id) || [];
+      const pp = pricesByHs.get(id) || [];
+      const voteAvg = vv.length ? vv.reduce((s,v)=>s+(voteScores[clean(v.Vote).toUpperCase()] ?? Number(v.Score||0)),0)/vv.length : 0;
+      const currentPrice = clean(hs.CurrentPrice || hs.TotalPrice || hs.Price) || latestPrice(pp);
+      const manual = Number(hs.ManualRank || hs.Priority || hs.Rank || 999);
+      const overall = Number(hs.OverallScore || hs.BuyScore || hs.ValueScore || 0);
+      const status = clean(hs.Status || 'ACTIVE').toUpperCase();
+      return { id, hs, house, votes: vv, prices: pp, voteAvg, currentPrice, manual, overall, status,
+        sortScore: (lostStatuses.has(status)?-1000:0) + (manual && manual<999 ? 1000-manual : 0) + voteAvg*20 + overall };
+    })
+    .sort((a,b)=> b.sortScore-a.sortScore || a.manual-b.manual || houseName(a).localeCompare(houseName(b)));
 }
-window.quickStatus=async function(houseSeasonId,status){ const row=currentSeasonRows().find(r=>String(r.HouseSeasonID)===String(houseSeasonId)); const name=row?.HouseName||houseName(houseById(row?.HouseID)); if(!confirm(`Mark ${name} as ${status}?`)) return; await post('updateHouseSeason',{HouseSeasonID:houseSeasonId,Status:status}); await loadData(); renderAll(); };
-window.moveHouse=async function(houseSeasonId,dir){
-  const rows=rowsRanked().filter(r=>!isLost(r)); const idx=rows.findIndex(r=>String(r.HouseSeasonID)===String(houseSeasonId)); if(idx<0) return; const ni=idx+dir; if(ni<0||ni>=rows.length) return;
-  const moving=rows[idx], other=rows[ni]; const mr=effectiveRank(moving)||idx+1; const or=effectiveRank(other)||ni+1;
-  await post('updateHouseSeason',{HouseSeasonID:moving.HouseSeasonID,ManualRank:or});
-  await post('updateHouseSeason',{HouseSeasonID:other.HouseSeasonID,ManualRank:mr});
-  await loadData(); renderAll();
-};
-function renderTables(){
-  const houses=(db.Houses||[]).filter(h=>houseName(h)).sort((a,b)=>houseName(a).localeCompare(houseName(b)));
-  $('#housesTable').innerHTML=table(['House','Agency','Neighborhood','BR','Oceanfront','Pool','Elevator','Notes'],houses.map(h=>[linkedHouse(houseName(h),h.ListingURL||h.HouseLink),h.Agency,h.Neighborhood,h.Bedrooms,h.Oceanfront,h.Pool,h.Elevator,h.Notes]));
-  const prices=(db.PriceObservations||[]).slice().reverse(); $('#pricesTable').innerHTML=table(['Date','House','Total','Discount','Notes'],prices.map(p=>[p.ObservationDate,escapeHtml(p.HouseName),money(p.TotalAmount||p.RentAmount),p.DiscountPct?num(p.DiscountPct)+'%':'',escapeHtml(p.Notes||'')]));
-  const summary=rowsRanked().map(r=>[linkedHouse(houseName(r.house)||r.HouseName,r.house?.ListingURL||r.house?.HouseLink),...VOTERS.map(p=>latestVote(r.HouseID,p)),avgVote(r.HouseID).toFixed(1),effectiveRank(r)||'',r.score,escapeHtml(r.Status||'')]);
-  $('#votesTable').innerHTML=table(['House',...VOTERS,'Consensus','Manual Rank','Decision Score','Status'],summary);
+function latestPrice(pp){ if(!pp.length) return ''; return pp.slice().sort((a,b)=> new Date(b.Date||b.ObservationDate)-new Date(a.Date||a.ObservationDate))[0].Price || ''; }
+function groupBy(arr, fn){ const m=new Map(); arr.forEach(x=>{ const k=fn(x); if(!m.has(k))m.set(k,[]); m.get(k).push(x); }); return m; }
+function houseName(r){ return clean(r.house.HouseName || r.house.Name || r.hs.HouseName || r.hs.Name || 'Unnamed House'); }
+function listingUrl(r){ return clean(r.house.ListingURL || r.house.URL || r.hs.ListingURL || r.hs.URL || ''); }
+function tierFor(r, idx){ if(lostStatuses.has(r.status)) return 'tier-gray'; if(isNew(r)) return 'tier-blue'; if(idx<3) return 'tier-green'; if(idx<6) return 'tier-yellow'; return 'tier-orange'; }
+function isNew(r){ return clean(r.status)==='NEW' || clean(r.hs.IsNew).toUpperCase()==='TRUE' || clean(r.hs.New).toUpperCase()==='TRUE'; }
+function statusBadge(r){ const s=statusLabels[r.status] || r.status || 'ACTIVE'; const cls= lostStatuses.has(r.status)?'gray': r.status==='BUY'?'green': r.status==='WATCH'?'yellow': r.status==='NEW'?'blue': r.status==='NEGOTIATE'?'orange':'gray'; return `<span class="badge ${cls}">${s}</span>`; }
+function rankLabel(i){ return i===0?'🥇':i===1?'🥈':i===2?'🥉':String(i+1); }
+function voteSummary(r){ if(!r.votes.length) return 'No votes yet'; const counts = {LOVE:0,LIKE:0,MAYBE:0,PASS:0}; r.votes.forEach(v=>{ const vv=clean(v.Vote).toUpperCase(); if(counts[vv]!==undefined) counts[vv]++; }); return `❤️ ${counts.LOVE} · 👍 ${counts.LIKE} · 🤔 ${counts.MAYBE} · 👎 ${counts.PASS}`; }
+
+function render(){ renderDashboard(); renderHouses(); renderVotes(); renderMarket(); renderHistory(); }
+function renderDashboard(){
+  const recs = activeRecords(); const active = recs.filter(r=>!lostStatuses.has(r.status));
+  const kpi = `
+    <div class="kpis">
+      <div class="kpi"><small>Active Houses</small><b>${active.length}</b></div>
+      <div class="kpi"><small>Oceanfront</small><b>${active.filter(r=>/yes|true|oceanfront/i.test(clean(r.house.Oceanfront||r.hs.Oceanfront))).length}</b></div>
+      <div class="kpi"><small>Value Leader</small><b>${houseName(active[0]||{})}</b></div>
+      <div class="kpi"><small>Lost / Booked</small><b>${recs.filter(r=>lostStatuses.has(r.status)).length}</b></div>
+      <div class="kpi"><small>Votes</small><b>${state.votes.length}</b></div>
+    </div>`;
+  const top = `<div class="panel"><h3>Today's Recommendation</h3><div class="grid">${active.slice(0,6).map(card).join('')}</div></div>`;
+  const activity = renderActivity(recs);
+  qs('#dashboard').innerHTML = kpi + top + activity;
 }
-function table(headers, rows){ return `<thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map(c=>`<td>${c??''}</td>`).join('')}</tr>`).join('')}</tbody>`; }
-function renderForms(){ const opts=rowsRanked().filter(r=>!isLost(r)).map(r=>`<option value="${escapeAttr(r.HouseID)}">${escapeHtml(houseName(r.house)||r.HouseName)}</option>`).join(''); $('#voteForm select[name=HouseID]').innerHTML=opts; $('#priceForm select[name=HouseID]').innerHTML=opts; $('#voteForm select[name=Person]').innerHTML=VOTERS.map(p=>`<option>${p}</option>`).join(''); $('#priceForm input[name=ObservationDate]').valueAsDate=new Date(); }
-function renderIntel(){
-  const hrows=db.Houses||[]; const neighborhoods=(db.Neighborhoods||[]).map(n=>{ const name=n.NeighborhoodName; const houses=hrows.filter(h=>h.Neighborhood===name); const active=rowsRanked().filter(r=>r.house?.Neighborhood===name && !isLost(r)); const avgCurrent=active.length?active.reduce((a,r)=>a+num(r.CurrentTotal),0)/active.length:0; const avgScore=active.length?active.reduce((a,r)=>a+r.score,0)/active.length:0; return [escapeHtml(name),houses.length,active.length,n.BeachPrivacyScore||'—',n.GroceryConvenienceScore||'—',avgCurrent?money(avgCurrent):'—',avgScore?Math.round(avgScore):'—',escapeHtml(compactNotes(n.Notes))]; });
-  const agencies=(db.Agencies||[]).map(a=>{ const name=a.AgencyName; const houses=hrows.filter(h=>h.Agency===name); const active=rowsRanked().filter(r=>r.house?.Agency===name && !isLost(r)); const avgCurrent=active.length?active.reduce((x,r)=>x+num(r.CurrentTotal),0)/active.length:0; const avgDisc=active.length?active.reduce((x,r)=>x+num(r.DiscountPct),0)/active.length:0; return [escapeHtml(name),houses.length,active.length,avgCurrent?money(avgCurrent):'—',avgDisc?Math.round(avgDisc)+'%':'—',escapeHtml(a.TypicalDiscount||'TBD'),escapeHtml(compactNotes(a.Notes))]; });
-  const lessons=(db.Lessons||[]).filter(x=>x.Theme||x.Evidence).slice(0,60).map(x=>[escapeHtml(cleanHouseName(x.HouseName||'', '')),escapeHtml(x.Theme||''),escapeHtml(x.Evidence||''),escapeHtml(x.Impact||'')]);
-  const dna=(db.ValueModel||[]).map(x=>[escapeHtml(x.Category||''),escapeHtml(x.Weight||''),escapeHtml(x['Scoring Notes']||x.ScoringNotes||'')]);
-  const panels=[['Neighborhood Intelligence',['Neighborhood','All Houses','Active','Beach Privacy','Grocery','Avg Price','Avg Score','Notes'],neighborhoods],['Agency Intelligence',['Agency','All Houses','Active','Avg Price','Avg Discount','Typical Pattern','Notes'],agencies],['Syracuse DNA',['Category','Weight','Scoring Notes'],dna],['Lessons Learned',['House','Theme','Evidence','Impact'],lessons]];
-  $('#intel').innerHTML=`<div class="intel-grid">${panels.map(([title,headers,rows])=>`<div class="panel"><h3>${title}</h3><p class="muted">Normalized, deduped view.</p><div class="table-wrap"><table>${table(headers,rows)}</table></div></div>`).join('')}</div>`;
+function renderHouses(){ const recs=activeRecords(); qs('#houses').innerHTML = `<div class="grid">${recs.map(card).join('')}</div>`; }
+function card(r, idx){ if(idx===undefined){ idx=activeRecords().findIndex(x=>x.id===r.id); }
+  const name=houseName(r), url=listingUrl(r), href=url?`href="${url}" target="_blank" rel="noopener"`:'';
+  const beds=clean(r.house.Bedrooms||r.hs.Bedrooms||''); const area=clean(r.house.Neighborhood||r.house.Area||r.hs.Neighborhood||r.hs.Area||'');
+  const agency=clean(r.house.Agency||r.hs.Agency||''); const notes=clean(r.hs.AnalystNotes||r.hs.Notes||r.house.Notes||'');
+  return `<article class="card ${tierFor(r,idx)}" data-id="${r.id}">
+    <div class="rank">${rankLabel(idx)} · ${area || 'OBX'} ${agency?`· ${agency}`:''}</div>
+    <div class="house-name">${url?`<a ${href}>${escapeHtml(name)}</a>`:escapeHtml(name)}</div>
+    <div class="meta">${beds?`${beds} BR · `:''}${clean(r.house.Oceanfront||r.hs.Oceanfront)?'Oceanfront · ':''}${clean(r.house.Pool||r.hs.Pool)?'Pool · ':''}${clean(r.house.Elevator||r.hs.Elevator)?'Elevator':''}</div>
+    <div class="price">${money(r.currentPrice)}</div>
+    <div class="badges">${statusBadge(r)}<span class="badge">${voteSummary(r)}</span></div>
+    ${notes?`<div class="note">${escapeHtml(notes)}</div>`:''}
+    <div class="vote-row"><button onclick="vote('${r.id}','LOVE')">❤️ Love</button><button onclick="vote('${r.id}','LIKE')">👍 Like</button><button onclick="vote('${r.id}','MAYBE')">🤔 Maybe</button><button onclick="vote('${r.id}','PASS')">👎 Pass</button></div>
+    <div class="admin-row"><button onclick="moveHouse('${r.id}',-1)">↑ Move Up</button><button onclick="moveHouse('${r.id}',1)">↓ Move Down</button><button onclick="statusHouse('${r.id}','BOOKED')">Mark Booked</button><button onclick="statusHouse('${r.id}','ELIMINATED')">Eliminate</button><button onclick="priceHouse('${r.id}')">Add Price</button></div>
+  </article>`;
 }
-function compactNotes(notes){ const seen=[]; String(notes||'').split('|').map(x=>x.trim()).filter(Boolean).forEach(x=>{ if(!seen.includes(x)&&!/imported from historical/i.test(x)) seen.push(x); }); return seen.slice(0,3).join(' | '); }
-function escapeHtml(s){ return String(s ?? '').replace(/[&<>"]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m])); }
-function escapeAttr(s){ return escapeHtml(s).replace(/'/g,'&#39;'); }
-init();
+function renderActivity(recs){
+  const items=[];
+  recs.filter(r=>lostStatuses.has(r.status)).slice(0,5).forEach(r=>items.push(`❌ <b>${escapeHtml(houseName(r))}</b> marked ${r.status}`));
+  state.prices.slice(-5).reverse().forEach(p=>items.push(`💰 Price check added: <b>${escapeHtml(p.HouseName||p.HouseSeasonID||'House')}</b> ${money(p.Price)}`));
+  state.votes.slice(-5).reverse().forEach(v=>items.push(`🗳 ${escapeHtml(v.PersonName||v.Person||'Someone')} voted <b>${escapeHtml(v.Vote||'')}</b>`));
+  return `<div class="panel"><h3>Activity Feed</h3><div class="activity">${items.length?items.map(x=>`<div class="activity-item">${x}</div>`).join(''):'<div class="activity-item">No activity yet.</div>'}</div></div>`;
+}
+function renderVotes(){
+  const recs=activeRecords();
+  qs('#votes').innerHTML = `<div class="panel"><h3>Group Picks</h3><table class="table"><thead><tr><th>Rank</th><th>House</th><th>Votes</th><th>Avg</th><th>Status</th></tr></thead><tbody>${recs.map((r,i)=>`<tr><td>${rankLabel(i)}</td><td>${escapeHtml(houseName(r))}</td><td>${voteSummary(r)}</td><td>${r.voteAvg.toFixed(1)}</td><td>${r.status}</td></tr>`).join('')}</tbody></table></div>`;
+}
+function renderMarket(){
+  const recs=activeRecords();
+  const neigh = new Map(); recs.forEach(r=>{ const n=clean(r.house.Neighborhood||r.house.Area||r.hs.Neighborhood||'Unknown'); if(!neigh.has(n)) neigh.set(n,{count:0,active:0}); neigh.get(n).count++; if(!lostStatuses.has(r.status))neigh.get(n).active++; });
+  qs('#market').innerHTML = `<div class="panel"><h3>Neighborhood Intelligence</h3><table class="table"><thead><tr><th>Neighborhood</th><th>Tracked</th><th>Active</th></tr></thead><tbody>${[...neigh.entries()].sort().map(([n,x])=>`<tr><td>${escapeHtml(n)}</td><td>${x.count}</td><td>${x.active}</td></tr>`).join('')}</tbody></table></div>`;
+}
+function renderHistory(){
+  const seasons = state.seasons.length ? state.seasons : [{SeasonName:'2021'},{SeasonName:'2022'},{SeasonName:'2023'},{SeasonName:'2024'},{SeasonName:'2025 Skipped'},{SeasonName:'2026 Active'}];
+  qs('#history').innerHTML = `<div class="panel"><h3>Syracuse Timeline</h3><div class="activity">${seasons.map(s=>`<div class="activity-item"><b>${escapeHtml(s.SeasonName||s.Year||s.SeasonID)}</b><br>${escapeHtml(s.Status||s.Notes||'')}</div>`).join('')}</div></div>`;
+}
+function escapeHtml(s){ return clean(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
+
+async function vote(houseSeasonId, voteVal){
+  const person = prompt('Who is voting? (Brent, Caitlin, Sarah, Claudine, Jenn)', localStorage.poPerson || 'Brent'); if(!person) return; localStorage.poPerson=person;
+  await runWrite('addVote',{ houseSeasonId, personName: person, vote: voteVal, seasonId: ACTIVE_SEASON_ID });
+}
+async function statusHouse(houseSeasonId, status){ if(!confirm(`Mark this house ${status}?`)) return; await runWrite('updateHouseSeason',{ houseSeasonId, updates:{ Status: status }}); }
+async function moveHouse(houseSeasonId, direction){ await runWrite('moveHouseSeason',{ houseSeasonId, direction }); }
+async function priceHouse(houseSeasonId){ const price=prompt('New total price?'); if(!price) return; await runWrite('addPriceObservation',{ houseSeasonId, price, seasonId: ACTIVE_SEASON_ID }); }
+async function runWrite(action,payload){
+  try{ toast('Saving…'); await api(action,payload); await loadData(); toast('Saved.'); }
+  catch(err){ console.error(err); toast('Save failed: '+err.message); }
+}
+function showAddHouse(){
+  qs('#modalContent').innerHTML = `<h2>Add House</h2><div class="form-grid"><div><label>House Name</label><input id="fName"></div><div><label>Listing URL</label><input id="fUrl"></div><div><label>Agency</label><input id="fAgency"></div><div><label>Neighborhood</label><input id="fNeighborhood"></div><div><label>Bedrooms</label><input id="fBeds"></div><div><label>Current Total Price</label><input id="fPrice"></div><div><label>Oceanfront?</label><select id="fOf"><option>Yes</option><option>No</option><option>Near</option></select></div><div><label>Status</label><select id="fStatus"><option>NEW</option><option>ACTIVE</option><option>WATCH</option><option>BUY</option><option>NEGOTIATE</option></select></div></div><label>Notes</label><textarea id="fNotes"></textarea><p><button class="primary" onclick="submitAddHouse()">Add House</button></p>`;
+  qs('#modal').classList.remove('hidden');
+}
+async function submitAddHouse(){
+  const payload={ seasonId: ACTIVE_SEASON_ID, house:{ HouseName:qs('#fName').value, ListingURL:qs('#fUrl').value, Agency:qs('#fAgency').value, Neighborhood:qs('#fNeighborhood').value, Bedrooms:qs('#fBeds').value, Oceanfront:qs('#fOf').value }, houseSeason:{ CurrentPrice:qs('#fPrice').value, Status:qs('#fStatus').value, AnalystNotes:qs('#fNotes').value }};
+  if(!payload.house.HouseName) return toast('House name required');
+  qs('#modal').classList.add('hidden'); await runWrite('addHouse',payload);
+}
+
+function bind(){
+  qsa('.nav').forEach(b=>b.addEventListener('click',()=>{ qsa('.nav').forEach(x=>x.classList.remove('active')); b.classList.add('active'); qsa('.view').forEach(v=>v.classList.remove('active')); qs('#'+b.dataset.view).classList.add('active'); qs('#pageTitle').textContent=b.textContent; }));
+  qs('#refreshBtn').addEventListener('click',loadData);
+  qs('#addHouseBtn').addEventListener('click',showAddHouse);
+  qs('#closeModal').addEventListener('click',()=>qs('#modal').classList.add('hidden'));
+}
+bind(); loadData();
