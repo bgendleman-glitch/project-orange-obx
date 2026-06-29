@@ -1,4 +1,4 @@
-/* Project Orange drop-in app.js
+/* Project Orange drop-in app.js - offer/rank/edit update
    GitHub UI + Google Apps Script JSONP backend.
 */
 const state = {
@@ -109,7 +109,6 @@ function normalizeResult(result){
     Seasons: tables.Seasons || []
   };
 }
-
 
 function buildCards(data){
   const housesById = Object.fromEntries(
@@ -264,8 +263,9 @@ function renderCards(){
         <button class="vote" onclick="vote('${jsStr(c.HouseID)}','${jsStr(c.HouseSeasonID)}','Pass')">👎 Pass</button>
       </div>
       <div class="actions">
-        <button class="btn small" onclick="moveHouse('${jsStr(c.HouseSeasonID)}','up')">Move Up</button>
-        <button class="btn small" onclick="moveHouse('${jsStr(c.HouseSeasonID)}','down')">Move Down</button>
+        <button class="btn small" onclick="setRank('${jsStr(c.HouseSeasonID)}','${jsStr(c.FinalRank || '')}')">Set Rank</button>
+        <button class="btn small" onclick="editHouseSeason('${jsStr(c.HouseSeasonID)}','${jsStr(c.Status || '')}','${jsStr(c.CurrentTotal || '')}','${jsStr(c.TargetPrice || '')}','${jsStr(c.AnalystNotes || c.Notes || '')}')">Edit</button>
+        <button class="btn small" onclick="logCallOffer('${jsStr(c.HouseID)}','${jsStr(c.HouseSeasonID)}','${jsStr(c.HouseName || '')}')">Log Call/Offer</button>
         <button class="btn small" onclick="updateStatus('${jsStr(c.HouseSeasonID)}','BOOKED')">Mark Booked</button>
         <button class="btn small danger" onclick="updateStatus('${jsStr(c.HouseSeasonID)}','ELIMINATED')">Eliminate</button>
         <button class="btn small" onclick="addPrice('${jsStr(c.HouseID)}','${jsStr(c.HouseSeasonID)}')">Add Price</button>
@@ -310,6 +310,74 @@ async function moveHouse(houseSeasonId, direction){
   if(!houseSeasonId) return alert('Missing HouseSeasonID for this house.');
   try{
     await jsonp('moveHouseSeason', {HouseSeasonID: houseSeasonId, Direction: direction});
+    await loadData();
+  }catch(err){ alert(err.message); }
+}
+
+async function setRank(houseSeasonId, currentRank){
+  if(!houseSeasonId) return alert('Missing HouseSeasonID for this house.');
+  const rank = prompt('Set rank number for this house:', currentRank || '');
+  if(rank === null || rank === '') return;
+  const n = Number(rank);
+  if(!Number.isFinite(n) || n <= 0) return alert('Please enter a valid rank number.');
+  try{
+    await jsonp('updateHouseSeason', {HouseSeasonID: houseSeasonId, FinalRank: n});
+    await loadData();
+  }catch(err){ alert(err.message); }
+}
+
+async function editHouseSeason(houseSeasonId, status, currentTotal, targetPrice, analystNotes){
+  if(!houseSeasonId) return alert('Missing HouseSeasonID for this house.');
+
+  const newStatus = prompt('Status, e.g. Buy Zone, Watch, Negotiating, Booked:', status || '');
+  if(newStatus === null) return;
+
+  const newCurrentTotal = prompt('Current total price:', currentTotal || '');
+  if(newCurrentTotal === null) return;
+
+  const newTargetPrice = prompt('Target / asking price:', targetPrice || '');
+  if(newTargetPrice === null) return;
+
+  const newNotes = prompt('Notes:', analystNotes || '');
+  if(newNotes === null) return;
+
+  try{
+    await jsonp('updateHouseSeason', {
+      HouseSeasonID: houseSeasonId,
+      Status: newStatus,
+      CurrentTotal: newCurrentTotal,
+      TargetPrice: newTargetPrice,
+      AnalystNotes: newNotes
+    });
+    await loadData();
+  }catch(err){ alert(err.message); }
+}
+
+async function logCallOffer(houseId, houseSeasonId, houseName){
+  const date = new Date().toLocaleDateString();
+  const offer = prompt(`Offer / ask for ${houseName}:`, '$13,000 + fees/taxes');
+  if(offer === null) return;
+
+  const outcome = prompt('Outcome / follow-up:', 'Called and offered asking price; waiting to hear back.');
+  if(outcome === null) return;
+
+  const notes = `${date}: ${outcome} Offer: ${offer}`;
+
+  try{
+    await jsonp('addPriceObservation', {
+      HouseID: houseId,
+      HouseSeasonID: houseSeasonId,
+      Price: '',
+      Notes: notes
+    });
+
+    await jsonp('updateHouseSeason', {
+      HouseSeasonID: houseSeasonId,
+      Status: 'Negotiating',
+      TargetPrice: offer,
+      AnalystNotes: notes
+    });
+
     await loadData();
   }catch(err){ alert(err.message); }
 }
