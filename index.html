@@ -3,70 +3,65 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Project Orange | OBX Value Index</title>
+  <title>Project Orange | Syracuse OBX Decision Board</title>
   <link rel="stylesheet" href="app.css" />
 </head>
 <body>
-  <aside class="sidebar">
-    <div class="brand"><div class="mark">🍊</div><div><h1>Project Orange</h1><p>Syracuse OBX Value Index</p></div></div>
-    <button class="nav active" data-view="war">War Room</button>
-    <button class="nav" data-view="houses">Houses</button>
-    <button class="nav" data-view="prices">Price History</button>
-    <button class="nav" data-view="votes">Voting</button>
-    <button class="nav" data-view="intel">Intelligence</button>
-    <div class="side-note"><b>Goal</b><br/>Find the best vacation experience per dollar for five Syracuse families.</div>
-  </aside>
-  <main>
-    <header class="topbar">
-      <div><h2 id="title">War Room</h2><p id="subtitle">Live ranking, votes, prices, and market notes.</p></div>
-      <div class="actions"><button id="refreshBtn">Refresh</button><button id="addHouseBtn" class="primary">+ Add House</button></div>
-    </header>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><div class="mark">🍊</div><div><h1>Project Orange</h1><p>Syracuse OBX Decision Board</p></div></div>
+      <button class="nav active" data-view="today">Today</button>
+      <button class="nav" data-view="houses">Houses</button>
+      <button class="nav" data-view="group">Group Picks</button>
+      <button class="nav" data-view="market">Market</button>
+      <button class="nav" data-view="history">History</button>
+      <button class="nav" data-view="admin">Admin</button>
+      <div class="side-note"><b>Goal</b><br/>The best reunion experience per dollar — not the fanciest house.</div>
+    </aside>
 
-    <section id="view-war" class="view">
-      <div id="kpis" class="kpis"></div>
-      <div class="panel">
-        <div class="panel-head"><h3>Leaderboard</h3><div class="filters"><input id="search" placeholder="Search by house, agency, neighborhood..." /><select id="statusFilter"><option value="">All statuses</option><option>BUY</option><option>WATCH</option><option>NEGOTIATE</option><option>WAIT</option><option>PASS</option></select></div></div>
-        <div id="cards" class="cards"></div>
-      </div>
-    </section>
+    <main>
+      <header class="topbar">
+        <div><h2 id="title">Today’s Decision</h2><p id="subtitle">What changed, what matters, and what we should do now.</p></div>
+        <div class="actions"><button id="refreshBtn">Refresh</button><button id="addHouseBtn" class="primary">+ Add House</button></div>
+      </header>
 
-    <section id="view-houses" class="view hidden">
-      <div class="panel"><h3>House Database</h3><p class="muted">House names open the listing. The raw URL column is intentionally hidden.</p><div class="table-wrap"><table id="housesTable"></table></div></div>
-    </section>
+      <section id="view-today" class="view">
+        <div id="kpis" class="kpis"></div>
+        <div class="grid two">
+          <div class="panel hero-panel"><div class="panel-head"><h3>Today’s Recommendation</h3><span id="liveBadge" class="badge">Loading</span></div><div id="recommendation"></div></div>
+          <div class="panel"><div class="panel-head"><h3>Activity Feed</h3><span class="muted">latest changes</span></div><div id="activity" class="activity"></div></div>
+        </div>
+        <div class="panel"><div class="panel-head"><h3>Decision Board</h3><div class="filters"><input id="search" placeholder="Search houses, location, agency..." /><select id="statusFilter"><option value="">All active + watch</option><option>BUY</option><option>WATCH</option><option>NEGOTIATE</option><option>WAIT</option><option>SHORTLIST</option><option>BOOKED</option><option>ELIMINATED</option><option>PASS</option></select></div></div><div id="cards" class="cards"></div></div>
+      </section>
 
-    <section id="view-prices" class="view hidden">
-      <div class="panel"><h3>Add Price Observation</h3><form id="priceForm" class="form"><select name="HouseID" required></select><input name="ObservationDate" type="date" required><input name="TotalAmount" type="number" placeholder="Total amount"><input name="DiscountPct" type="number" placeholder="Discount %"><input name="Notes" class="wide" placeholder="Notes"><button class="primary">Save Price Check</button></form></div>
-      <div class="panel"><h3>Price History</h3><div class="table-wrap"><table id="pricesTable"></table></div></div>
-    </section>
+      <section id="view-houses" class="view hidden">
+        <div class="panel"><div class="panel-head"><h3>House Cards</h3><span class="muted">No raw URLs; names open listings.</span></div><div id="houseCards" class="cards compact"></div></div>
+      </section>
 
-    <section id="view-votes" class="view hidden">
-      <div class="panel"><h3>Cast a Vote</h3><form id="voteForm" class="form"><select name="HouseID" required></select><select name="Person" required></select><select name="Vote" required><option value="3">+3 Strongly move up</option><option value="2">+2 Move up</option><option value="1">+1 Slightly move up</option><option value="0">0 Neutral</option><option value="-1">-1 Slightly move down</option><option value="-2">-2 Move down</option><option value="-3">-3 Strongly move down</option></select><input name="Comments" class="wide" placeholder="Why?"><button class="primary">Save Vote</button></form></div>
-      <div class="panel"><h3>Vote Summary</h3><div class="table-wrap"><table id="votesTable"></table></div></div>
-    </section>
+      <section id="view-group" class="view hidden">
+        <div class="panel"><div class="panel-head"><h3>Group Picks</h3><span class="muted">Simple voting: Love, Like, Maybe, Pass.</span></div><div id="groupPicks"></div></div>
+      </section>
 
-    <section id="view-intel" class="view hidden">
-      <div id="intel"></div>
-    </section>
-  </main>
+      <section id="view-market" class="view hidden">
+        <div class="grid two"><div class="panel"><h3>Add Price Check</h3><form id="priceForm" class="form"><select name="HouseID" required></select><input name="ObservationDate" type="date" required><input name="TotalAmount" type="number" placeholder="Total amount"><input name="DiscountPct" type="number" placeholder="Discount %"><input name="Notes" class="wide" placeholder="Notes"><button class="primary">Save Price</button></form></div><div class="panel"><h3>Market Snapshot</h3><div id="marketSnapshot" class="mini-stats"></div></div></div>
+        <div class="panel"><h3>Price History</h3><div class="table-wrap"><table id="pricesTable"></table></div></div>
+      </section>
 
-  <dialog id="houseDialog">
-    <form method="dialog" id="houseForm" class="dialog-card">
-      <h3>Add New House</h3>
-      <input name="HouseName" placeholder="House name" required>
-      <input name="ListingURL" placeholder="Listing URL">
-      <input name="Agency" placeholder="Agency">
-      <input name="Neighborhood" placeholder="Neighborhood">
-      <input name="Bedrooms" type="number" placeholder="Bedrooms">
-      <select name="Oceanfront"><option value="">Oceanfront?</option><option>Yes</option><option>Semi</option><option>No</option></select>
-      <select name="Pool"><option value="">Pool?</option><option>Yes</option><option>No</option></select>
-      <select name="Elevator"><option value="">Elevator?</option><option>Yes</option><option>No</option></select>
-      <input name="CurrentTotal" type="number" placeholder="Current total">
-      <input name="TargetPrice" type="number" placeholder="Target price">
-      <textarea name="Notes" placeholder="Analyst notes"></textarea>
-      <menu><button value="cancel">Cancel</button><button class="primary" value="default">Save House</button></menu>
-    </form>
-  </dialog>
+      <section id="view-history" class="view hidden">
+        <div id="history"></div>
+      </section>
 
+      <section id="view-admin" class="view hidden">
+        <div class="grid two">
+          <div class="panel"><h3>Update House Status</h3><p class="muted">Don’t delete houses. Mark them lost or eliminated so we learn from them.</p><form id="statusForm" class="form"><select name="HouseSeasonID" required></select><select name="Status" required><option>BUY</option><option>WATCH</option><option>NEGOTIATE</option><option>WAIT</option><option>SHORTLIST</option><option>BOOKED</option><option>ELIMINATED</option><option>PASS</option><option>WINNER</option></select><input name="Reason" class="wide" placeholder="Reason, e.g. Booked by someone else today"><button class="primary">Update Status</button></form></div>
+          <div class="panel"><h3>Add New House</h3><form id="houseForm" class="form"><input name="HouseName" placeholder="House name" required><input name="ListingURL" placeholder="Listing URL"><input name="Agency" placeholder="Agency"><input name="Neighborhood" placeholder="Neighborhood"><input name="Bedrooms" type="number" placeholder="Bedrooms"><select name="Oceanfront"><option value="">Oceanfront?</option><option>Yes</option><option>Semi</option><option>No</option></select><select name="Pool"><option value="">Pool?</option><option>Yes</option><option>No</option></select><select name="Elevator"><option value="">Elevator?</option><option>Yes</option><option>No</option></select><input name="CurrentTotal" type="number" placeholder="Current total"><input name="TargetPrice" type="number" placeholder="Target price"><textarea name="Notes" placeholder="Analyst notes"></textarea><button class="primary">Save House</button></form></div>
+        </div>
+        <div class="panel"><h3>Raw Data Health</h3><div id="dataHealth" class="mini-stats"></div></div>
+      </section>
+    </main>
+  </div>
+
+  <template id="cardTemplate"></template>
   <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
